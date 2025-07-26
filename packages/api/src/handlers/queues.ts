@@ -1,7 +1,7 @@
 import {
   AppJob,
   AppQueue,
-  BullBoardRequest,
+  BullBoardRequestWithConnections,
   ControllerHandlerReturnType,
   JobCounts,
   JobStatus,
@@ -10,6 +10,7 @@ import {
   Status,
 } from '../../typings/app';
 import { BaseAdapter } from '../queueAdapters/base';
+import { ConnectionManager } from '../services/connectionManager';
 
 export const formatJob = (job: QueueJob, queue: BaseAdapter): AppJob => {
   const jobProps = job.toJSON();
@@ -59,11 +60,11 @@ function getPagination(
 }
 
 async function getAppQueues(
-  pairs: [string, BaseAdapter][],
+  pairs: [string, BaseAdapter, string?, string?][],
   query: Record<string, any>
 ): Promise<AppQueue[]> {
   return Promise.all(
-    pairs.map(async ([queueName, queue]) => {
+    pairs.map(async ([queueName, queue, connectionName, connectionId]) => {
       const isActiveQueue = decodeURIComponent(query.activeQueue) === queueName;
       const jobsPerPage = +query.jobsPerPage || 10;
 
@@ -85,6 +86,8 @@ async function getAppQueues(
         name: queueName,
         displayName: queue.getDisplayName() || undefined,
         description: queue.getDescription() || undefined,
+        connectionName: connectionName || 'Unknown',
+        connectionId: connectionId || undefined,
         statuses: queue.getStatuses(),
         counts: counts as Record<Status, number>,
         jobs: jobs.filter(Boolean).map((job) => formatJob(job, queue)),
@@ -100,12 +103,67 @@ async function getAppQueues(
   );
 }
 
-export async function queuesHandler(req: BullBoardRequest): Promise<ControllerHandlerReturnType> {
-  const pairs: [string, BaseAdapter][] = [];
+export async function queuesHandler(
+  req: BullBoardRequestWithConnections
+): Promise<ControllerHandlerReturnType> {
+  const pairs: [string, BaseAdapter, string?, string?][] = [];
+  const connectionManager = req.connectionManager as ConnectionManager;
 
-  for (const [queueName, queue] of req.queues.entries()) {
-    if (await queue.isVisible(req)) {
-      pairs.push([queueName, queue]);
+  // Track which queues belong to dynamic connections to avoid duplication
+  const dynamicQueueNames = new Set<string>();
+
+  // Add queues from dynamic connections if connection manager is available
+  if (connectionManager) {
+    try {
+      const connections = await connectionManager.getAllConnections();
+
+      await Promise.all(
+        connections.map(async (connection) => {
+          try {
+            // Get queues specifically mapped to this connection
+            const queueNamesForConnection = await connectionManager.getQueuesForConnection(
+              connection.id
+            );
+
+            await Promise.all(
+              queueNamesForConnection.map(async (queueName) => {
+                const queue = req.queues.get(queueName);
+                if (queue && (await queue.isVisible(req))) {
+                  pairs.push([queueName, queue, connection.name, connection.id]);
+                  dynamicQueueNames.add(queueName);
+                }
+              })
+            );
+          } catch (error) {
+            console.warn(
+              `Failed to load queues for connection ${connection.name}:`,
+              error instanceof Error ? error.message : String(error)
+            );
+          }
+        })
+      );
+    } catch (error) {
+      console.warn(
+        'Failed to load dynamic connections:',
+        error instanceof Error ? error.message : String(error)
+      );
+    }
+  }
+
+  // Also include queues that exist in req.queues but aren't explicitly mapped
+  // These will be shown under the master connection if available
+  if (connectionManager) {
+    try {
+      const masterConnection = await connectionManager.getConnection('__master__');
+      if (masterConnection) {
+        for (const [queueName, queue] of req.queues.entries()) {
+          if (!dynamicQueueNames.has(queueName) && await queue.isVisible(req)) {
+            pairs.push([queueName, queue, masterConnection.name, masterConnection.id]);
+          }
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load master connection for unmapped queues:', error instanceof Error ? error.message : String(error));
     }
   }
 

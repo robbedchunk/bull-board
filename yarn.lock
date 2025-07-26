@@ -391,21 +391,16 @@ __metadata:
   languageName: node
   linkType: hard
 
-"@bull-board/api@npm:6.12.0, @bull-board/api@npm:^6.12.0, @bull-board/api@workspace:packages/api":
-  version: 0.0.0-use.local
-  resolution: "@bull-board/api@workspace:packages/api"
+"@bull-board/api@npm:6.12.0, @bull-board/api@npm:^6.12.0":
+  version: 6.12.0
+  resolution: "@bull-board/api@npm:6.12.0"
   dependencies:
-    "@types/redis-info": "npm:^3.0.3"
-    "@types/supertest": "npm:^2.0.16"
-    bull: "npm:^4.16.5"
-    bullmq: "npm:^5.53.2"
-    ioredis: "npm:^5.6.1"
     redis-info: "npm:^3.1.0"
-    supertest: "npm:^7.1.1"
   peerDependencies:
     "@bull-board/ui": 6.12.0
-  languageName: unknown
-  linkType: soft
+  checksum: 10c0/9b639a12ff75d6724b441a6c11373e92e1a146960bdda4842a8bd6847611208059c557f63f0ed37301f90948c8f13c774e526e53d252cab8c9b49e4f9dd37057
+  languageName: node
+  linkType: hard
 
 "@bull-board/elysia@workspace:packages/elysia":
   version: 0.0.0-use.local
@@ -2980,6 +2975,20 @@ __metadata:
   checksum: 10c0/0dac4f0f15691199abe6a0e067821ddd9d0349c0c05f39834e4eafc8403caf724106884035ae91bbc826e10367e6a5672e7bec4d4243860fa7649de246b1f60b
   languageName: node
   linkType: hard
+
+"@robbedchunk/bull-board-api@workspace:packages/api":
+  version: 0.0.0-use.local
+  resolution: "@robbedchunk/bull-board-api@workspace:packages/api"
+  dependencies:
+    "@types/redis-info": "npm:^3.0.3"
+    "@types/supertest": "npm:^2.0.16"
+    bull: "npm:^4.16.5"
+    bullmq: "npm:^5.53.2"
+    ioredis: "npm:^5.6.1"
+    redis-info: "npm:^3.1.0"
+    supertest: "npm:^7.1.1"
+  languageName: unknown
+  linkType: soft
 
 "@rsbuild/core@npm:^1.3.22":
   version: 1.3.22

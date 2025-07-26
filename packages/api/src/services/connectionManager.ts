@@ -3,21 +3,8 @@ import { Redis } from 'ioredis';
 import { BullMQAdapter } from '../queueAdapters/bullMQ';
 import { BullAdapter } from '../queueAdapters/bull';
 import { BaseAdapter } from '../queueAdapters/base';
-
-export interface RedisConnectionConfig {
-  id: string;
-  name: string;
-  host: string;
-  port: number;
-  password?: string;
-  db?: number;
-  username?: string;
-  family?: 4 | 6;
-  keyPrefix?: string;
-  connectTimeout?: number;
-  lazyConnect?: boolean;
-  tls?: any;
-}
+import { RedisConnectionConfig, DetectedQueue } from '../../typings/app';
+import { QueueDetector } from './queueDetector';
 
 export interface EncryptedConnectionData {
   iv: string;
@@ -25,11 +12,15 @@ export interface EncryptedConnectionData {
   tag: string;
 }
 
+export const MASTER_CONNECTION_ID = '__master__';
+
 export class ConnectionManager {
   private masterRedis: Redis;
   private connections: Map<string, Redis> = new Map();
   private encryptionKey: Buffer;
   private readonly STORAGE_PREFIX = 'bull-board:connections:';
+  private readonly HASH_INDEX_KEY = 'bull-board:connection-hashes';
+  private readonly MASTER_REGISTRY_KEY = 'bull-board:all-queues';
 
   constructor(masterRedis: Redis, encryptionKey: string) {
     this.masterRedis = masterRedis;
@@ -37,10 +28,83 @@ export class ConnectionManager {
   }
 
   /**
+   * Create connection configuration for master Redis
+   */
+  private createMasterConnectionConfig(): RedisConnectionConfig {
+    const masterRedisOptions = this.masterRedis.options;
+    
+    return {
+      id: MASTER_CONNECTION_ID,
+      name: 'Master Redis',
+      host: masterRedisOptions.host || 'localhost',
+      port: masterRedisOptions.port || 6379,
+      password: masterRedisOptions.password,
+      db: masterRedisOptions.db || 0,
+      username: masterRedisOptions.username,
+      family: (masterRedisOptions.family as 4 | 6) || 4,
+      keyPrefix: masterRedisOptions.keyPrefix,
+      connectTimeout: masterRedisOptions.connectTimeout || 10000,
+      lazyConnect: masterRedisOptions.lazyConnect !== false,
+      tls: masterRedisOptions.tls,
+      queueNames: [],
+      hash: this.generateConnectionHash({
+        host: masterRedisOptions.host || 'localhost',
+        port: masterRedisOptions.port || 6379,
+        db: masterRedisOptions.db || 0,
+        username: masterRedisOptions.username,
+        keyPrefix: masterRedisOptions.keyPrefix,
+      })
+    };
+  }
+
+  /**
+   * Initialize master Redis as a dynamic connection
+   */
+  async initializeMasterConnection(): Promise<void> {
+    try {
+      const masterConfig = this.createMasterConnectionConfig();
+      // Store master connection config (without encryption check since it uses the same Redis)
+      const configJson = JSON.stringify(masterConfig);
+      const encrypted = this.encrypt(configJson);
+      
+      await this.masterRedis.set(
+        `${this.STORAGE_PREFIX}${MASTER_CONNECTION_ID}`,
+        JSON.stringify(encrypted)
+      );
+
+      // Index the hash for duplicate detection  
+      await this.masterRedis.hset(this.HASH_INDEX_KEY, masterConfig.hash, MASTER_CONNECTION_ID);
+      
+      // Add master Redis to connections map
+      this.connections.set(MASTER_CONNECTION_ID, this.masterRedis);
+    } catch (error) {
+      console.warn('Failed to initialize master connection:', error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  /**
    * Derive a 32-byte key from the provided encryption key
    */
   private deriveKey(key: string): Buffer {
     return createHash('sha256').update(key).digest();
+  }
+
+  /**
+   * Generate a hash for connection configuration to prevent duplicates
+   * Hash includes: host, port, db, username, keyPrefix
+   */
+  public generateConnectionHash(config: Omit<RedisConnectionConfig, 'id' | 'hash' | 'name'>): string {
+    const hashData = {
+      host: config.host,
+      port: config.port,
+      db: config.db || 0,
+      username: config.username || '',
+      keyPrefix: config.keyPrefix || '',
+    };
+    
+    return createHash('sha256')
+      .update(JSON.stringify(hashData))
+      .digest('hex');
   }
 
   /**
@@ -79,12 +143,60 @@ export class ConnectionManager {
   }
 
   /**
+   * Check if a connection with the same configuration already exists
+   */
+  async findExistingConnection(config: Omit<RedisConnectionConfig, 'id' | 'hash' | 'name'>): Promise<RedisConnectionConfig | null> {
+    const hash = this.generateConnectionHash(config);
+    const existingId = await this.masterRedis.hget(this.HASH_INDEX_KEY, hash);
+    
+    if (existingId) {
+      return await this.getConnection(existingId);
+    }
+    
+    return null;
+  }
+
+  /**
    * Store encrypted connection configuration in master Redis
    */
   async storeConnection(config: RedisConnectionConfig): Promise<void> {
+    // Check for existing connection
+    const existing = await this.findExistingConnection(config);
+    if (existing) {
+      throw new Error(`Connection already exists with name "${existing.name}" (ID: ${existing.id})`);
+    }
+
+    // Ensure queueNames array exists
+    if (!config.queueNames) {
+      config.queueNames = [];
+    }
+
     const configJson = JSON.stringify(config);
     const encrypted = this.encrypt(configJson);
     
+    // Store the encrypted config
+    await this.masterRedis.set(
+      `${this.STORAGE_PREFIX}${config.id}`,
+      JSON.stringify(encrypted)
+    );
+
+    // Index the hash for duplicate detection
+    await this.masterRedis.hset(this.HASH_INDEX_KEY, config.hash, config.id);
+  }
+
+  /**
+   * Update existing connection configuration without duplicate checking
+   */
+  private async updateConnection(config: RedisConnectionConfig): Promise<void> {
+    // Ensure queueNames array exists
+    if (!config.queueNames) {
+      config.queueNames = [];
+    }
+
+    const configJson = JSON.stringify(config);
+    const encrypted = this.encrypt(configJson);
+    
+    // Store the encrypted config
     await this.masterRedis.set(
       `${this.STORAGE_PREFIX}${config.id}`,
       JSON.stringify(encrypted)
@@ -122,6 +234,14 @@ export class ConnectionManager {
    * Remove stored connection configuration
    */
   async removeConnection(id: string): Promise<boolean> {
+    // Protect master connection from deletion
+    if (id === MASTER_CONNECTION_ID) {
+      throw new Error('Master connection cannot be deleted as it is required for system operation');
+    }
+
+    // Get the connection config to remove hash index
+    const config = await this.getConnection(id);
+    
     // Close active connection if exists
     const activeConnection = this.connections.get(id);
     if (activeConnection) {
@@ -131,6 +251,15 @@ export class ConnectionManager {
 
     // Remove from storage
     const result = await this.masterRedis.del(`${this.STORAGE_PREFIX}${id}`);
+    
+    // Remove from hash index if config exists
+    if (config) {
+      await this.masterRedis.hdel(this.HASH_INDEX_KEY, config.hash);
+    }
+    
+    // Note: Queue mappings are automatically cleaned up when connection config is deleted
+    // since they're stored within the connection configuration
+    
     return result > 0;
   }
 
@@ -141,6 +270,12 @@ export class ConnectionManager {
     // Check if connection already exists
     if (this.connections.has(config.id)) {
       return this.connections.get(config.id)!;
+    }
+
+    // Special handling for master Redis connection
+    if (config.id === MASTER_CONNECTION_ID) {
+      this.connections.set(MASTER_CONNECTION_ID, this.masterRedis);
+      return this.masterRedis;
     }
 
     const redis = new Redis({
@@ -172,6 +307,133 @@ export class ConnectionManager {
   }
 
   /**
+   * Add queue to connection mapping
+   */
+  async addQueueToConnection(connectionId: string, queueName: string): Promise<void> {
+    const config = await this.getConnection(connectionId);
+    if (!config) {
+      throw new Error(`Connection ${connectionId} not found`);
+    }
+
+    if (!config.queueNames) {
+      config.queueNames = [];
+    }
+
+    // Add queue name if not already present
+    if (!config.queueNames.includes(queueName)) {
+      config.queueNames.push(queueName);
+      await this.updateConnection(config);
+    }
+  }
+
+  /**
+   * Remove queue from connection mapping
+   */
+  async removeQueueFromConnection(connectionId: string, queueName: string): Promise<void> {
+    const config = await this.getConnection(connectionId);
+    if (!config) {
+      return; // Connection doesn't exist, nothing to remove
+    }
+
+    if (config.queueNames) {
+      const index = config.queueNames.indexOf(queueName);
+      if (index > -1) {
+        config.queueNames.splice(index, 1);
+        await this.updateConnection(config);
+      }
+    }
+  }
+
+  /**
+   * Get all queue names for a specific connection
+   */
+  async getQueuesForConnection(connectionId: string): Promise<string[]> {
+    const config = await this.getConnection(connectionId);
+    return config?.queueNames || [];
+  }
+
+  /**
+   * Get connection ID that owns a specific queue
+   */
+  async getConnectionForQueue(queueName: string): Promise<string | null> {
+    const connections = await this.getAllConnections();
+    
+    for (const connection of connections) {
+      if (connection.queueNames && connection.queueNames.includes(queueName)) {
+        return connection.id;
+      }
+    }
+    
+    return null;
+  }
+
+  /**
+   * Add queue to master registry with composite key to handle name overlaps
+   */
+  async addQueueToMasterRegistry(queueName: string, connectionId: string): Promise<void> {
+    const compositeKey = `${connectionId}:${queueName}`;
+    await this.masterRedis.hset(this.MASTER_REGISTRY_KEY, compositeKey, connectionId);
+  }
+
+  /**
+   * Remove queue from master registry
+   */
+  async removeQueueFromMasterRegistry(queueName: string, connectionId: string): Promise<void> {
+    const compositeKey = `${connectionId}:${queueName}`;
+    await this.masterRedis.hdel(this.MASTER_REGISTRY_KEY, compositeKey);
+  }
+
+  /**
+   * Get all queues from master registry
+   */
+  async getAllQueuesFromMasterRegistry(): Promise<Record<string, string>> {
+    return await this.masterRedis.hgetall(this.MASTER_REGISTRY_KEY);
+  }
+
+  /**
+   * Get queues for a specific connection from master registry
+   */
+  async getQueuesForConnectionFromRegistry(connectionId: string): Promise<string[]> {
+    const allQueues = await this.getAllQueuesFromMasterRegistry();
+    const prefix = `${connectionId}:`;
+    
+    return Object.keys(allQueues)
+      .filter(key => key.startsWith(prefix))
+      .map(key => key.substring(prefix.length));
+  }
+
+  /**
+   * Load and recreate all queues from master registry on startup
+   */
+  async loadQueuesFromMasterRegistry(): Promise<Map<string, BaseAdapter>> {
+    const reconstructedQueues = new Map<string, BaseAdapter>();
+    
+    try {
+      const allQueues = await this.getAllQueuesFromMasterRegistry();
+      
+      for (const [compositeKey, connectionId] of Object.entries(allQueues)) {
+        try {
+          // Parse composite key: "connectionId:queueName"
+          const colonIndex = compositeKey.indexOf(':');
+          if (colonIndex === -1) continue;
+          
+          const queueName = compositeKey.substring(colonIndex + 1);
+          
+          // Recreate queue adapter
+          const adapter = await this.createQueueAdapter(connectionId, queueName);
+          reconstructedQueues.set(adapter.getName(), adapter);
+        } catch (error) {
+          console.warn(`Failed to recreate queue from registry: ${compositeKey}`, error instanceof Error ? error.message : String(error));
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to load queues from master registry:', error instanceof Error ? error.message : String(error));
+    }
+    
+    return reconstructedQueues;
+  }
+
+  /**
    * Create queue adapter from connection configuration
    */
   async createQueueAdapter(
@@ -186,6 +448,7 @@ export class ConnectionManager {
     }
 
     const redis = await this.createConnection(config);
+    let adapter: BaseAdapter;
 
     if (queueType === 'bullmq') {
       // Import bullmq dynamically to avoid dependency issues
@@ -194,7 +457,7 @@ export class ConnectionManager {
         connection: redis,
         ...options 
       });
-      return new BullMQAdapter(queue);
+      adapter = new BullMQAdapter(queue);
     } else {
       // Import bull dynamically to avoid dependency issues  
       const Queue = require('bull');
@@ -209,8 +472,69 @@ export class ConnectionManager {
         },
         ...options 
       });
-      return new BullAdapter(queue);
+      adapter = new BullAdapter(queue);
     }
+
+    // Register the queue-to-connection mapping
+    const adapterName = adapter.getName();
+    await this.addQueueToConnection(connectionId, adapterName);
+    
+    // Also register in master registry
+    await this.addQueueToMasterRegistry(queueName, connectionId);
+
+    return adapter;
+  }
+
+  /**
+   * Detect queues on a specific connection
+   */
+  async detectQueuesForConnection(connectionId: string): Promise<DetectedQueue[]> {
+    const config = await this.getConnection(connectionId);
+    if (!config) {
+      throw new Error(`Connection ${connectionId} not found`);
+    }
+
+    const redis = await this.createConnection(config);
+    const detector = new QueueDetector(redis);
+    
+    try {
+      const detectedQueues = await detector.detectAllQueues();
+      
+      // Add connection info to detected queues
+      return detectedQueues.map(queue => ({
+        ...queue,
+        connectionId: config.id,
+        connectionName: config.name
+      }));
+    } catch (error) {
+      console.error(`Failed to detect queues for connection ${config.name}:`, error);
+      return [];
+    }
+  }
+
+  /**
+   * Detect queues on all connections
+   */
+  async detectQueuesOnAllConnections(): Promise<DetectedQueue[]> {
+    const allDetectedQueues: DetectedQueue[] = [];
+
+    // Detect queues on all dynamic connections (including master)
+    try {
+      const connections = await this.getAllConnections();
+      
+      for (const connection of connections) {
+        try {
+          const connectionQueues = await this.detectQueuesForConnection(connection.id);
+          allDetectedQueues.push(...connectionQueues);
+        } catch (error) {
+          console.warn(`Failed to detect queues for connection ${connection.name}:`, error);
+        }
+      }
+    } catch (error) {
+      console.warn('Failed to get connections for queue detection:', error);
+    }
+
+    return allDetectedQueues;
   }
 
   /**

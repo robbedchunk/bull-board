@@ -17,7 +17,7 @@ export async function createConnectionHandler(
   req: BullBoardRequestWithConnections
 ): Promise<ControllerHandlerReturnType> {
   const connectionManager = req.connectionManager as ConnectionManager;
-  
+
   if (!connectionManager) {
     return {
       status: 500,
@@ -27,7 +27,7 @@ export async function createConnectionHandler(
 
   try {
     const connectionData = req.body as CreateConnectionRequest;
-    
+
     // Validate required fields
     if (!connectionData.name || !connectionData.host || !connectionData.port) {
       return {
@@ -36,9 +36,8 @@ export async function createConnectionHandler(
       };
     }
 
-    // Create connection config with generated ID
-    const config: RedisConnectionConfig = {
-      id: randomUUID(),
+    // Create connection config with generated ID and hash
+    const baseConfig = {
       name: connectionData.name,
       host: connectionData.host,
       port: connectionData.port,
@@ -50,6 +49,29 @@ export async function createConnectionHandler(
       connectTimeout: connectionData.connectTimeout || 10000,
       lazyConnect: connectionData.lazyConnect !== false,
       tls: connectionData.tls,
+    };
+
+    // Check for existing connection before creating
+    const existingConnection = await connectionManager.findExistingConnection(baseConfig);
+    if (existingConnection) {
+      return {
+        status: 400,
+        body: {
+          error: `Connection already exists with name "${existingConnection.name}" (ID: ${existingConnection.id})`,
+          existingConnection: {
+            id: existingConnection.id,
+            name: existingConnection.name,
+            host: existingConnection.host,
+            port: existingConnection.port,
+          },
+        },
+      };
+    }
+
+    const config: RedisConnectionConfig = {
+      id: randomUUID(),
+      hash: connectionManager.generateConnectionHash(baseConfig),
+      ...baseConfig,
     };
 
     // Test connection before storing
@@ -65,18 +87,20 @@ export async function createConnectionHandler(
     await connectionManager.storeConnection(config);
 
     // Return connection info (without sensitive data)
-    const { password, ...safeConfig } = config;
+    const { password, hash, ...safeConfig } = config;
     return {
       status: 201,
-      body: { 
+      body: {
         message: 'Connection created successfully',
-        connection: safeConfig 
+        connection: safeConfig,
       },
     };
   } catch (error) {
     return {
       status: 500,
-      body: { error: `Failed to create connection: ${error instanceof Error ? error.message : String(error)}` },
+      body: {
+        error: `Failed to create connection: ${error instanceof Error ? error.message : String(error)}`,
+      },
     };
   }
 }
@@ -89,7 +113,7 @@ export async function listConnectionsHandler(
   req: BullBoardRequestWithConnections
 ): Promise<ControllerHandlerReturnType> {
   const connectionManager = req.connectionManager as ConnectionManager;
-  
+
   if (!connectionManager) {
     return {
       status: 500,
@@ -99,17 +123,19 @@ export async function listConnectionsHandler(
 
   try {
     const connections = await connectionManager.getAllConnections();
-    
+
     // Remove sensitive data from response
-    const safeConnections = connections.map(({ password, ...config }) => config);
-    
+    const safeConnections = connections.map(({ password, hash, ...config }) => config);
+
     return {
       body: { connections: safeConnections },
     };
   } catch (error) {
     return {
       status: 500,
-      body: { error: `Failed to list connections: ${error instanceof Error ? error.message : String(error)}` },
+      body: {
+        error: `Failed to list connections: ${error instanceof Error ? error.message : String(error)}`,
+      },
     };
   }
 }
@@ -123,7 +149,7 @@ export async function getConnectionHealthHandler(
 ): Promise<ControllerHandlerReturnType> {
   const connectionManager = req.connectionManager as ConnectionManager;
   const connectionId = req.params.id;
-  
+
   if (!connectionManager) {
     return {
       status: 500,
@@ -157,7 +183,9 @@ export async function getConnectionHealthHandler(
   } catch (error) {
     return {
       status: 500,
-      body: { error: `Failed to check connection health: ${error instanceof Error ? error.message : String(error)}` },
+      body: {
+        error: `Failed to check connection health: ${error instanceof Error ? error.message : String(error)}`,
+      },
     };
   }
 }
@@ -171,7 +199,7 @@ export async function deleteConnectionHandler(
 ): Promise<ControllerHandlerReturnType> {
   const connectionManager = req.connectionManager as ConnectionManager;
   const connectionId = req.params.id;
-  
+
   if (!connectionManager) {
     return {
       status: 500,
@@ -181,7 +209,7 @@ export async function deleteConnectionHandler(
 
   try {
     const removed = await connectionManager.removeConnection(connectionId);
-    
+
     if (!removed) {
       return {
         status: 404,
@@ -194,9 +222,23 @@ export async function deleteConnectionHandler(
       body: {},
     };
   } catch (error) {
+    const errorMessage = error instanceof Error ? error.message : String(error);
+    
+    // Handle master connection deletion attempt
+    if (errorMessage.includes('Master connection cannot be deleted')) {
+      return {
+        status: 400,
+        body: {
+          error: errorMessage,
+        },
+      };
+    }
+
     return {
       status: 500,
-      body: { error: `Failed to delete connection: ${error instanceof Error ? error.message : String(error)}` },
+      body: {
+        error: `Failed to delete connection: ${errorMessage}`,
+      },
     };
   }
 }
@@ -210,7 +252,7 @@ export async function addQueueToConnectionHandler(
 ): Promise<ControllerHandlerReturnType> {
   const connectionManager = req.connectionManager as ConnectionManager;
   const connectionId = req.params.id;
-  
+
   if (!connectionManager) {
     return {
       status: 500,
@@ -220,7 +262,7 @@ export async function addQueueToConnectionHandler(
 
   try {
     const queueData = req.body as AddQueueToConnectionRequest;
-    
+
     if (!queueData.queueName) {
       return {
         status: 400,
@@ -245,23 +287,25 @@ export async function addQueueToConnectionHandler(
       queueData.options || {}
     );
 
-    // Add queue to bull board queues map
+    // Add queue to global bull board queues map (not just request-local)
     const queueName = queueAdapter.getName();
-    req.queues.set(queueName, queueAdapter);
+    (req as any).addQueueGlobally(queueAdapter);
 
     return {
       status: 201,
-      body: { 
+      body: {
         message: 'Queue added successfully',
         queueName,
         connectionId,
-        connectionName: config.name
+        connectionName: config.name,
       },
     };
   } catch (error) {
     return {
       status: 500,
-      body: { error: `Failed to add queue to connection: ${error instanceof Error ? error.message : String(error)}` },
+      body: {
+        error: `Failed to add queue to connection: ${error instanceof Error ? error.message : String(error)}`,
+      },
     };
   }
 }
@@ -275,7 +319,7 @@ export async function getConnectionQueuesHandler(
 ): Promise<ControllerHandlerReturnType> {
   const connectionManager = req.connectionManager as ConnectionManager;
   const connectionId = req.params.id;
-  
+
   if (!connectionManager) {
     return {
       status: 500,
@@ -293,35 +337,22 @@ export async function getConnectionQueuesHandler(
       };
     }
 
-    // Filter queues that belong to this connection
-    // This is a simplified approach - in a more complex implementation,
-    // you might want to track queue-to-connection mappings
-    const connectionQueues: string[] = [];
-    
-    for (const [queueName, adapter] of req.queues.entries()) {
-      // Check if the adapter's redis instance matches this connection
-      // This is a basic check - you might need more sophisticated logic
-      try {
-        const redisInfo = await adapter.getRedisInfo();
-        if (redisInfo) {
-          connectionQueues.push(queueName);
-        }
-      } catch (error) {
-        // Skip queues that can't provide redis info
-      }
-    }
+    // Get queues specifically mapped to this connection
+    const connectionQueues = await connectionManager.getQueuesForConnection(connectionId);
 
     return {
-      body: { 
+      body: {
         connectionId,
         connectionName: config.name,
-        queues: connectionQueues
+        queues: connectionQueues,
       },
     };
   } catch (error) {
     return {
       status: 500,
-      body: { error: `Failed to get connection queues: ${error instanceof Error ? error.message : String(error)}` },
+      body: {
+        error: `Failed to get connection queues: ${error instanceof Error ? error.message : String(error)}`,
+      },
     };
   }
 }
@@ -333,16 +364,41 @@ export async function getConnectionQueuesHandler(
 export async function removeQueueFromConnectionHandler(
   req: BullBoardRequestWithConnections
 ): Promise<ControllerHandlerReturnType> {
+  const connectionManager = req.connectionManager as ConnectionManager;
+  const connectionId = req.params.id;
   const queueName = req.params.queueName;
-  
+
+  if (!connectionManager) {
+    return {
+      status: 500,
+      body: { error: 'Connection manager not initialized' },
+    };
+  }
+
   try {
-    // Remove queue from bull board queues map
-    const removed = req.queues.delete(queueName);
+    // Check if connection exists
+    const config = await connectionManager.getConnection(connectionId);
+    if (!config) {
+      return {
+        status: 404,
+        body: { error: 'Connection not found' },
+      };
+    }
+
+    // Remove queue from connection mapping
+    await connectionManager.removeQueueFromConnection(connectionId, queueName);
     
+    // Remove queue from master registry
+    await connectionManager.removeQueueFromMasterRegistry(queueName, connectionId);
+
+    // Remove queue from global bull board queues map (not just request-local)
+    (req as any).removeQueueGlobally(queueName);
+    const removed = true; // Global removal always succeeds if queue exists
+
     if (!removed) {
       return {
         status: 404,
-        body: { error: 'Queue not found' },
+        body: { error: 'Queue not found in queue registry' },
       };
     }
 
@@ -353,7 +409,9 @@ export async function removeQueueFromConnectionHandler(
   } catch (error) {
     return {
       status: 500,
-      body: { error: `Failed to remove queue from connection: ${error instanceof Error ? error.message : String(error)}` },
+      body: {
+        error: `Failed to remove queue from connection: ${error instanceof Error ? error.message : String(error)}`,
+      },
     };
   }
 }

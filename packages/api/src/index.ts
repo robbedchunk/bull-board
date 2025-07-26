@@ -45,6 +45,11 @@ export function createBullBoard({
   
   if (options.encryptionKey && options.masterRedis) {
     connectionManager = new ConnectionManager(options.masterRedis, options.encryptionKey);
+    
+    // Initialize master Redis as a dynamic connection
+    connectionManager.initializeMasterConnection().catch(error => {
+      console.warn('Failed to initialize master Redis as dynamic connection:', error instanceof Error ? error.message : String(error));
+    });
   }
 
   const { 
@@ -53,6 +58,7 @@ export function createBullBoard({
     replaceQueues, 
     addQueue, 
     removeQueue,
+    setServerAdapter,
     addQueueFromConnection
   } = getQueuesApi(queues, connectionManager);
 
@@ -66,22 +72,28 @@ export function createBullBoard({
     return errorHandler(error);
   };
 
-  // Middleware to inject connection manager into requests
+  // Middleware to inject connection manager and global queue methods into requests
   const originalSetApiRoutes = serverAdapter.setApiRoutes.bind(serverAdapter);
   serverAdapter.setApiRoutes = (routes) => {
     const enhancedRoutes = routes.map(route => ({
       ...route,
       handler: async (req: any) => {
-        // Inject connection manager into request for connection-related endpoints
-        if (connectionManager && route.route.toString().includes('/api/connections')) {
+        // Inject connection manager into all requests if available
+        if (connectionManager) {
           (req as BullBoardRequestWithConnections).connectionManager = connectionManager;
         }
+        // Inject global queue management methods
+        (req as any).addQueueGlobally = addQueue;
+        (req as any).removeQueueGlobally = removeQueue;
         return route.handler(req);
       }
     }));
     
     return originalSetApiRoutes(enhancedRoutes);
   };
+
+  // Set up server adapter reference for global queue synchronization
+  setServerAdapter(serverAdapter);
 
   serverAdapter
     .setQueues(bullBoardQueues)

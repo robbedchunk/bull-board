@@ -133,6 +133,8 @@ export interface AppQueue {
   name: string;
   displayName?: string;
   description?: string;
+  connectionName?: string;
+  connectionId?: string;
   counts: Record<Status, number>;
   jobs: AppJob[];
   statuses: Status[];
@@ -269,6 +271,7 @@ export type DateFormats = {
 // Dynamic Redis Connection Types
 export interface RedisConnectionConfig {
   id: string;
+  hash: string;
   name: string;
   host: string;
   port: number;
@@ -280,6 +283,7 @@ export interface RedisConnectionConfig {
   connectTimeout?: number;
   lazyConnect?: boolean;
   tls?: any;
+  queueNames?: string[]; // Track queues associated with this connection
 }
 
 export interface ConnectionHealthStatus {
@@ -318,4 +322,26 @@ export interface DynamicBoardOptions extends BoardOptions {
 // Extended request type for connection-aware operations
 export interface BullBoardRequestWithConnections extends BullBoardRequest {
   connectionManager?: any; // ConnectionManager instance
+}
+
+// Queue Detection Types
+export interface DetectedQueue {
+  name: string;
+  type: 'bull' | 'bullmq';
+  connectionId?: string;
+  connectionName?: string;
+}
+
+export interface QueueRegistrationError {
+  queueName: string;
+  connectionName: string;
+  error: string;
+}
+
+export interface QueueDetectionResult {
+  success: boolean;
+  discovered: number;                    // Number of NEW queues found (actionable)
+  registered?: number;                   // Only present when autoRegister=true
+  failed?: QueueRegistrationError[];     // Only present when some registrations failed
+  queues: DetectedQueue[];               // ONLY new/unregistered queues
 }

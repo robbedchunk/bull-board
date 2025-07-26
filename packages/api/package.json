@@ -1,6 +1,6 @@
 {
   "name": "@robbedchunk/bull-board-api",
-  "version": "1.0.0",
+  "version": "1.6.3",
   "description": "A Dashboard server API built on top of bull or bullmq with dynamic Redis connections support.",
   "keywords": [
     "bull",
@@ -30,8 +30,8 @@
     "test": "jest"
   },
   "dependencies": {
-    "redis-info": "^3.1.0",
-    "ioredis": "^5.6.1"
+    "ioredis": "^5.6.1",
+    "redis-info": "^3.1.0"
   },
   "devDependencies": {
     "@types/redis-info": "^3.0.3",

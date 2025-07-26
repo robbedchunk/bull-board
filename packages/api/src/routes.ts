@@ -26,6 +26,10 @@ import {
   getConnectionQueuesHandler,
   removeQueueFromConnectionHandler,
 } from './handlers/connections';
+import {
+  detectQueuesHandler,
+  detectConnectionQueuesHandler,
+} from './handlers/queueDetection';
 
 export const appRoutes: AppRouteDefs = {
   entryPoint: {
@@ -36,6 +40,8 @@ export const appRoutes: AppRouteDefs = {
   api: [
     { method: 'get', route: '/api/redis/stats', handler: redisStatsHandler },
     { method: 'get', route: '/api/queues', handler: queuesHandler },
+    // Queue detection routes
+    { method: 'post', route: '/api/queues/detect', handler: detectQueuesHandler },
     // Dynamic connection management routes
     { method: 'post', route: '/api/connections', handler: createConnectionHandler },
     { method: 'get', route: '/api/connections', handler: listConnectionsHandler },
@@ -44,6 +50,7 @@ export const appRoutes: AppRouteDefs = {
     { method: 'post', route: '/api/connections/:id/queues', handler: addQueueToConnectionHandler },
     { method: 'get', route: '/api/connections/:id/queues', handler: getConnectionQueuesHandler },
     { method: 'delete', route: '/api/connections/:id/queues/:queueName', handler: removeQueueFromConnectionHandler },
+    { method: 'post', route: '/api/connections/:id/detect', handler: detectConnectionQueuesHandler },
     { method: 'put', route: '/api/queues/pause', handler: pauseAllHandler },
     { method: 'put', route: '/api/queues/resume', handler: resumeAllHandler },
     {

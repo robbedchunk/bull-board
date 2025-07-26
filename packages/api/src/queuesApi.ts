@@ -4,16 +4,29 @@ import { ConnectionManager } from './services/connectionManager';
 
 export function getQueuesApi(queues: ReadonlyArray<BaseAdapter>, connectionManager?: ConnectionManager) {
   const bullBoardQueues: BullBoardQueues = new Map<string, BaseAdapter>();
+  let serverAdapter: any = null; // Will be set from index.ts
 
   function addQueue(queue: BaseAdapter): void {
     const name = queue.getName();
     bullBoardQueues.set(name, queue);
+    // Notify server adapter of queue changes
+    if (serverAdapter) {
+      serverAdapter.setQueues(bullBoardQueues);
+    }
   }
 
   function removeQueue(queueOrName: string | BaseAdapter) {
     const name = typeof queueOrName === 'string' ? queueOrName : queueOrName.getName();
 
     bullBoardQueues.delete(name);
+    // Notify server adapter of queue changes
+    if (serverAdapter) {
+      serverAdapter.setQueues(bullBoardQueues);
+    }
+  }
+
+  function setServerAdapter(adapter: any): void {
+    serverAdapter = adapter;
   }
 
   function setQueues(newBullQueues: ReadonlyArray<BaseAdapter>): void {
@@ -64,21 +77,17 @@ export function getQueuesApi(queues: ReadonlyArray<BaseAdapter>, connectionManag
     }
 
     try {
-      const connections = await connectionManager.getAllConnections();
+      // Load all connection-based queues from master registry
+      const reconstructedQueues = await connectionManager.loadQueuesFromMasterRegistry();
       
-      // This is a basic implementation - in a production system,
-      // you might want to store queue-to-connection mappings separately
-      for (const connection of connections) {
-        try {
-          // You could implement logic here to automatically load
-          // previously configured queues for each connection
-          // For now, we'll leave this as a placeholder
-        } catch (error) {
-          console.warn(`Failed to load queues for connection ${connection.name}:`, error instanceof Error ? error.message : String(error));
-        }
+      // Add all reconstructed queues to the bull board queues map
+      for (const [queueName, adapter] of reconstructedQueues) {
+        bullBoardQueues.set(queueName, adapter);
       }
+      
+      console.log(`Loaded ${reconstructedQueues.size} queues from master registry`);
     } catch (error) {
-      console.warn('Failed to load queues from connections:', error instanceof Error ? error.message : String(error));
+      console.warn('Failed to load queues from master registry:', error instanceof Error ? error.message : String(error));
     }
   }
 
@@ -102,6 +111,7 @@ export function getQueuesApi(queues: ReadonlyArray<BaseAdapter>, connectionManag
     replaceQueues, 
     addQueue, 
     removeQueue,
+    setServerAdapter,
     // New dynamic functions
     addQueueFromConnection,
     loadQueuesFromConnections,
