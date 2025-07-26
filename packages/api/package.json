@@ -1,6 +1,6 @@
 {
   "name": "@robbedchunk/bull-board-api",
-  "version": "1.6.3",
+  "version": "1.6.4",
   "description": "A Dashboard server API built on top of bull or bullmq with dynamic Redis connections support.",
   "keywords": [
     "bull",

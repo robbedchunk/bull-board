@@ -1,7 +1,5 @@
 import { createHash, createCipheriv, createDecipheriv, randomBytes } from 'crypto';
 import { Redis } from 'ioredis';
-import { BullMQAdapter } from '../queueAdapters/bullMQ';
-import { BullAdapter } from '../queueAdapters/bull';
 import { BaseAdapter } from '../queueAdapters/base';
 import { RedisConnectionConfig, DetectedQueue } from '../../typings/app';
 import { QueueDetector } from './queueDetector';
@@ -451,16 +449,18 @@ export class ConnectionManager {
     let adapter: BaseAdapter;
 
     if (queueType === 'bullmq') {
-      // Import bullmq dynamically to avoid dependency issues
+      // Import bullmq and adapter dynamically to avoid dependency issues
       const { Queue } = require('bullmq');
+      const { BullMQAdapter } = require('../queueAdapters/bullMQ');
       const queue = new Queue(queueName, { 
         connection: redis,
         ...options 
       });
       adapter = new BullMQAdapter(queue);
     } else {
-      // Import bull dynamically to avoid dependency issues  
+      // Import bull and adapter dynamically to avoid dependency issues  
       const Queue = require('bull');
+      const { BullAdapter } = require('../queueAdapters/bull');
       const queue = new Queue(queueName, { 
         redis: {
           host: config.host,
