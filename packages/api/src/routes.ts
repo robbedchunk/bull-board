@@ -17,6 +17,15 @@ import { promoteAllHandler } from './handlers/promoteAll';
 import { updateJobDataHandler } from './handlers/updateJobData';
 import { pauseAllHandler } from './handlers/pauseAll';
 import { resumeAllHandler } from './handlers/resumeAll';
+import {
+  createConnectionHandler,
+  listConnectionsHandler,
+  getConnectionHealthHandler,
+  deleteConnectionHandler,
+  addQueueToConnectionHandler,
+  getConnectionQueuesHandler,
+  removeQueueFromConnectionHandler,
+} from './handlers/connections';
 
 export const appRoutes: AppRouteDefs = {
   entryPoint: {
@@ -27,6 +36,14 @@ export const appRoutes: AppRouteDefs = {
   api: [
     { method: 'get', route: '/api/redis/stats', handler: redisStatsHandler },
     { method: 'get', route: '/api/queues', handler: queuesHandler },
+    // Dynamic connection management routes
+    { method: 'post', route: '/api/connections', handler: createConnectionHandler },
+    { method: 'get', route: '/api/connections', handler: listConnectionsHandler },
+    { method: 'get', route: '/api/connections/:id/health', handler: getConnectionHealthHandler },
+    { method: 'delete', route: '/api/connections/:id', handler: deleteConnectionHandler },
+    { method: 'post', route: '/api/connections/:id/queues', handler: addQueueToConnectionHandler },
+    { method: 'get', route: '/api/connections/:id/queues', handler: getConnectionQueuesHandler },
+    { method: 'delete', route: '/api/connections/:id/queues/:queueName', handler: removeQueueFromConnectionHandler },
     { method: 'put', route: '/api/queues/pause', handler: pauseAllHandler },
     { method: 'put', route: '/api/queues/resume', handler: resumeAllHandler },
     {

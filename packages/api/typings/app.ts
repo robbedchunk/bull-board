@@ -144,8 +144,8 @@ export interface AppQueue {
   type: QueueType;
 }
 
-export type HTTPMethod = 'get' | 'post' | 'put' | 'patch';
-export type HTTPStatus = 200 | 204 | 404 | 405 | 500;
+export type HTTPMethod = 'get' | 'post' | 'put' | 'patch' | 'delete';
+export type HTTPStatus = 200 | 201 | 204 | 400 | 404 | 405 | 500;
 
 export interface BullBoardRequest {
   queues: BullBoardQueues;
@@ -265,3 +265,57 @@ export type DateFormats = {
    */
   full?: string;
 };
+
+// Dynamic Redis Connection Types
+export interface RedisConnectionConfig {
+  id: string;
+  name: string;
+  host: string;
+  port: number;
+  password?: string;
+  db?: number;
+  username?: string;
+  family?: 4 | 6;
+  keyPrefix?: string;
+  connectTimeout?: number;
+  lazyConnect?: boolean;
+  tls?: any;
+}
+
+export interface ConnectionHealthStatus {
+  id: string;
+  name: string;
+  status: 'connected' | 'disconnected' | 'error';
+  lastChecked: number;
+  error?: string;
+}
+
+export interface CreateConnectionRequest {
+  name: string;
+  host: string;
+  port: number;
+  password?: string;
+  db?: number;
+  username?: string;
+  family?: 4 | 6;
+  keyPrefix?: string;
+  connectTimeout?: number;
+  lazyConnect?: boolean;
+  tls?: any;
+}
+
+export interface AddQueueToConnectionRequest {
+  queueName: string;
+  queueType?: 'bull' | 'bullmq';
+  options?: any;
+}
+
+export interface DynamicBoardOptions extends BoardOptions {
+  encryptionKey?: string;
+  masterRedis?: any; // Redis instance for storing encrypted configs
+}
+
+// Extended request type for connection-aware operations
+export interface BullBoardRequestWithConnections extends BullBoardRequest {
+  connectionManager?: any; // ConnectionManager instance
+}
