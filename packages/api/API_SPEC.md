@@ -149,25 +149,43 @@ PUT /api/queues/resume
 
 ### Individual Queue Operations
 
+**Important:** All queue operations require the `connectionId` parameter to specify which Redis connection owns the queue.
+
 #### Pause Queue
 ```
-PUT /api/queues/{queueName}/pause
+PUT /api/queues/{connectionId}/{queueName}/pause
 ```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue to pause
 
 #### Resume Queue
 ```
-PUT /api/queues/{queueName}/resume
+PUT /api/queues/{connectionId}/{queueName}/resume
 ```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue to resume
 
 #### Empty Queue
 ```
-PUT /api/queues/{queueName}/empty
+PUT /api/queues/{connectionId}/{queueName}/empty
 ```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue to empty
 
 #### Add Job to Queue
 ```
-POST /api/queues/{queueName}/add
+POST /api/queues/{connectionId}/{queueName}/add
 ```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue to add job to
 
 **Request Body:**
 ```json
@@ -187,23 +205,31 @@ POST /api/queues/{queueName}/add
 
 #### Retry All Failed Jobs
 ```
-PUT /api/queues/{queueName}/retry/{queueStatus}
+PUT /api/queues/{connectionId}/{queueName}/retry/{queueStatus}
 ```
 
 **Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue
 - `queueStatus`: `failed` or `completed`
 
 #### Promote All Delayed Jobs
 ```
-PUT /api/queues/{queueName}/promote
-```
-
-#### Clean Jobs by Status
-```
-PUT /api/queues/{queueName}/clean/{queueStatus}
+PUT /api/queues/{connectionId}/{queueName}/promote
 ```
 
 **Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue
+
+#### Clean Jobs by Status
+```
+PUT /api/queues/{connectionId}/{queueName}/clean/{queueStatus}
+```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue
 - `queueStatus`: `completed`, `wait`, `active`, `delayed`, or `failed`
 
 **Query Parameters:**
@@ -211,10 +237,17 @@ PUT /api/queues/{queueName}/clean/{queueStatus}
 
 ### Individual Job Operations
 
+**Important:** All job operations require the `connectionId` parameter to specify which Redis connection owns the queue.
+
 #### Get Job Details
 ```
-GET /api/queues/{queueName}/{jobId}
+GET /api/queues/{connectionId}/{queueName}/{jobId}
 ```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue
+- `jobId`: ID of the job
 
 **Response:**
 ```json
@@ -244,8 +277,13 @@ GET /api/queues/{queueName}/{jobId}
 
 #### Get Job Logs
 ```
-GET /api/queues/{queueName}/{jobId}/logs
+GET /api/queues/{connectionId}/{queueName}/{jobId}/logs
 ```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue
+- `jobId`: ID of the job
 
 **Query Parameters:**
 - `start` (number): Start index for logs
@@ -263,23 +301,44 @@ GET /api/queues/{queueName}/{jobId}/logs
 
 #### Retry Job
 ```
-PUT /api/queues/{queueName}/{jobId}/retry/{queueStatus}
+PUT /api/queues/{connectionId}/{queueName}/{jobId}/retry/{queueStatus}
 ```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue
+- `jobId`: ID of the job
+- `queueStatus`: `failed` or `completed`
 
 #### Clean Job
 ```
-PUT /api/queues/{queueName}/{jobId}/clean
+PUT /api/queues/{connectionId}/{queueName}/{jobId}/clean
 ```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue
+- `jobId`: ID of the job
 
 #### Promote Job
 ```
-PUT /api/queues/{queueName}/{jobId}/promote
+PUT /api/queues/{connectionId}/{queueName}/{jobId}/promote
 ```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue
+- `jobId`: ID of the job
 
 #### Update Job Data
 ```
-PATCH /api/queues/{queueName}/{jobId}/update-data
+PATCH /api/queues/{connectionId}/{queueName}/{jobId}/update-data
 ```
+
+**Path Parameters:**
+- `connectionId` (required): UUID of the Redis connection that owns the queue
+- `queueName`: Name of the queue
+- `jobId`: ID of the job
 
 **Request Body:**
 ```json
@@ -659,6 +718,41 @@ All endpoints may return the following error responses:
 - **Simplified codebase**: Removed duplicate handling between static and dynamic queues
 - **Consistent API responses**: All queues now have proper `connectionId` and `connectionName`
 - **Clear system boundaries**: Only registered dynamic connections can have queues
+
+### Multi-Connection Handler Support (v1.7.0+)
+- **Connection-aware routing**: All queue and job operations now require `connectionId` parameter
+- **Mandatory connection specification**: `/api/queues/{connectionId}/{queueName}/...` format is now the only supported format
+- **Improved performance**: Direct queue resolution using connection ID eliminates search overhead
+- **Better error handling**: More precise queue resolution with clearer error messages
+- **Enhanced providers**: New `connectionAwareQueueProvider` and `connectionAwareJobProvider` for multi-connection support
+- **Type safety**: Enhanced TypeScript support with `BullBoardRequestWithConnections` interface
+- **Breaking change**: Legacy routing without `connectionId` is no longer supported
+
+#### Connection-Aware Routing Benefits
+
+**Performance Improvements:**
+- Direct queue lookup using `connectionId` eliminates expensive search operations
+- O(1) connection resolution instead of O(n) queue scanning
+- Reduced memory usage during queue operations
+
+**Better User Experience:**
+- Clearer queue identification with explicit connection context
+- More precise error messages when queues are not found
+- Consistent behavior across all queue and job operations
+
+**API Consistency:**
+- All operations use the same format: `/api/queues/{connectionId}/{queueName}/{...}`
+- No ambiguity about which connection a queue belongs to
+- Simplified codebase without legacy compatibility layers
+
+**Examples:**
+
+All operations now require connection ID:
+```
+GET /api/queues/550e8400-e29b-41d4-a716-446655440000/my-queue/job123
+POST /api/queues/550e8400-e29b-41d4-a716-446655440000/my-queue/add
+PUT /api/queues/550e8400-e29b-41d4-a716-446655440000/my-queue/pause
+```
 
 ## Security
 

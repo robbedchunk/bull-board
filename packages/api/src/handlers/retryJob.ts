@@ -1,13 +1,13 @@
 import {
-  BullBoardRequest,
+  BullBoardRequestWithConnections,
   ControllerHandlerReturnType,
   QueueJob,
 } from '../../typings/app';
-import { jobProvider } from '../providers/job';
-import { queueProvider } from '../providers/queue';
+import { connectionAwareJobProvider } from '../providers/job';
+import { connectionAwareQueueProvider } from '../providers/queue';
 
 async function retryJob(
-  req: BullBoardRequest,
+  req: BullBoardRequestWithConnections,
   job: QueueJob
 ): Promise<ControllerHandlerReturnType> {
   const { queueStatus } = req.params;
@@ -20,4 +20,4 @@ async function retryJob(
   };
 }
 
-export const retryJobHandler = queueProvider(jobProvider(retryJob));
+export const retryJobHandler = connectionAwareQueueProvider(connectionAwareJobProvider(retryJob));

@@ -1,4 +1,4 @@
-import { BullBoardRequest, ControllerHandlerReturnType, QueueJob } from '../../typings/app';
+import { BullBoardRequest, BullBoardRequestWithConnections, ControllerHandlerReturnType, QueueJob } from '../../typings/app';
 import { BaseAdapter } from '../queueAdapters/base';
 
 export function jobProvider(
@@ -10,6 +10,34 @@ export function jobProvider(
 ) {
   return async (
     req: BullBoardRequest,
+    queue: BaseAdapter
+  ): Promise<ControllerHandlerReturnType> => {
+    const { jobId } = req.params;
+
+    const job = await queue.getJob(jobId);
+
+    if (!job) {
+      return {
+        status: 404,
+        body: {
+          error: 'Job not found',
+        },
+      };
+    }
+
+    return next(req, job, queue);
+  };
+}
+
+export function connectionAwareJobProvider(
+  next: (
+    req: BullBoardRequestWithConnections,
+    job: QueueJob,
+    queue: BaseAdapter
+  ) => Promise<ControllerHandlerReturnType>
+) {
+  return async (
+    req: BullBoardRequestWithConnections,
     queue: BaseAdapter
   ): Promise<ControllerHandlerReturnType> => {
     const { jobId } = req.params;

@@ -1,9 +1,9 @@
-import { BullBoardRequest, ControllerHandlerReturnType, QueueJob } from '../../typings/app';
-import { jobProvider } from '../providers/job';
-import { queueProvider } from '../providers/queue';
+import { BullBoardRequestWithConnections, ControllerHandlerReturnType, QueueJob } from '../../typings/app';
+import { connectionAwareJobProvider } from '../providers/job';
+import { connectionAwareQueueProvider } from '../providers/queue';
 
 async function updateJobData(
-  req: BullBoardRequest,
+  req: BullBoardRequestWithConnections,
   job: QueueJob
 ): Promise<ControllerHandlerReturnType> {
   const { jobData } = req.body;
@@ -20,4 +20,4 @@ async function updateJobData(
   };
 }
 
-export const updateJobDataHandler = queueProvider(jobProvider(updateJobData));
+export const updateJobDataHandler = connectionAwareQueueProvider(connectionAwareJobProvider(updateJobData));

@@ -1,9 +1,9 @@
-import { BullBoardRequest, ControllerHandlerReturnType } from '../../typings/app';
-import { queueProvider } from '../providers/queue';
+import { BullBoardRequestWithConnections, ControllerHandlerReturnType } from '../../typings/app';
+import { connectionAwareQueueProvider } from '../providers/queue';
 import { BaseAdapter } from '../queueAdapters/base';
 
 async function resumeQueue(
-  _req: BullBoardRequest,
+  _req: BullBoardRequestWithConnections,
   queue: BaseAdapter
 ): Promise<ControllerHandlerReturnType> {
   await queue.resume();
@@ -11,4 +11,4 @@ async function resumeQueue(
   return { status: 200, body: {} };
 }
 
-export const resumeQueueHandler = queueProvider(resumeQueue);
+export const resumeQueueHandler = connectionAwareQueueProvider(resumeQueue);

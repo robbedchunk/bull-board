@@ -1,9 +1,9 @@
-import { BullBoardRequest, ControllerHandlerReturnType } from '../../typings/app';
+import { BullBoardRequestWithConnections, ControllerHandlerReturnType } from '../../typings/app';
 import { BaseAdapter } from '../queueAdapters/base';
-import { queueProvider } from '../providers/queue';
+import { connectionAwareQueueProvider } from '../providers/queue';
 
 async function retryAll(
-  req: BullBoardRequest,
+  req: BullBoardRequestWithConnections,
   queue: BaseAdapter,
 ): Promise<ControllerHandlerReturnType> {
   const { queueStatus } = req.params;
@@ -14,4 +14,4 @@ async function retryAll(
   return { status: 200, body: {} };
 }
 
-export const retryAllHandler = queueProvider(retryAll);
+export const retryAllHandler = connectionAwareQueueProvider(retryAll);

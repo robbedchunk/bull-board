@@ -1,11 +1,11 @@
-import { BullBoardRequest, ControllerHandlerReturnType, QueueJob } from '../../typings/app';
-import { queueProvider } from '../providers/queue';
-import { jobProvider } from '../providers/job';
+import { BullBoardRequestWithConnections, ControllerHandlerReturnType, QueueJob } from '../../typings/app';
+import { connectionAwareQueueProvider } from '../providers/queue';
+import { connectionAwareJobProvider } from '../providers/job';
 import { BaseAdapter } from '../queueAdapters/base';
 import { formatJob } from './queues';
 
 async function getJobState(
-  _req: BullBoardRequest,
+  _req: BullBoardRequestWithConnections,
   job: QueueJob,
   queue: BaseAdapter
 ): Promise<ControllerHandlerReturnType> {
@@ -20,6 +20,6 @@ async function getJobState(
   };
 }
 
-export const jobHandler = queueProvider(jobProvider(getJobState), {
+export const jobHandler = connectionAwareQueueProvider(connectionAwareJobProvider(getJobState), {
   skipReadOnlyModeCheck: true,
 });

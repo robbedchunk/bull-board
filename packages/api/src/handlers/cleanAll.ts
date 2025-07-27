@@ -1,12 +1,12 @@
 import { BaseAdapter } from '../queueAdapters/base';
 import {
-  BullBoardRequest,
+  BullBoardRequestWithConnections,
   ControllerHandlerReturnType,
 } from '../../typings/app';
-import { queueProvider } from '../providers/queue';
+import { connectionAwareQueueProvider } from '../providers/queue';
 
 async function cleanAll(
-  req: BullBoardRequest,
+  req: BullBoardRequestWithConnections,
   queue: BaseAdapter
 ): Promise<ControllerHandlerReturnType> {
   const { queueStatus } = req.params;
@@ -21,4 +21,4 @@ async function cleanAll(
   };
 }
 
-export const cleanAllHandler = queueProvider(cleanAll);
+export const cleanAllHandler = connectionAwareQueueProvider(cleanAll);

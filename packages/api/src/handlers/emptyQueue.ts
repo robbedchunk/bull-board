@@ -1,9 +1,9 @@
-import { BullBoardRequest, ControllerHandlerReturnType } from '../../typings/app';
-import { queueProvider } from '../providers/queue';
+import { BullBoardRequestWithConnections, ControllerHandlerReturnType } from '../../typings/app';
+import { connectionAwareQueueProvider } from '../providers/queue';
 import { BaseAdapter } from '../queueAdapters/base';
 
 async function emptyQueue(
-  _req: BullBoardRequest,
+  _req: BullBoardRequestWithConnections,
   queue: BaseAdapter
 ): Promise<ControllerHandlerReturnType> {
   await queue.empty();
@@ -11,4 +11,4 @@ async function emptyQueue(
   return { status: 200, body: {} };
 }
 
-export const emptyQueueHandler = queueProvider(emptyQueue);
+export const emptyQueueHandler = connectionAwareQueueProvider(emptyQueue);

@@ -1,10 +1,10 @@
 import { BaseAdapter } from '../queueAdapters/base';
-import { BullBoardRequest, ControllerHandlerReturnType } from '../../typings/app';
-import { queueProvider } from '../providers/queue';
+import { BullBoardRequestWithConnections, ControllerHandlerReturnType } from '../../typings/app';
+import { connectionAwareQueueProvider } from '../providers/queue';
 import { formatJob } from './queues';
 
 async function addJob(
-  req: BullBoardRequest,
+  req: BullBoardRequestWithConnections,
   queue: BaseAdapter
 ): Promise<ControllerHandlerReturnType> {
   const { name, data, options } = req.body;
@@ -20,4 +20,4 @@ async function addJob(
   };
 }
 
-export const addJobHandler = queueProvider(addJob);
+export const addJobHandler = connectionAwareQueueProvider(addJob);

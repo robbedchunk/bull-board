@@ -1,13 +1,13 @@
 import {
-  BullBoardRequest,
+  BullBoardRequestWithConnections,
   ControllerHandlerReturnType,
   QueueJob,
 } from '../../typings/app';
-import { jobProvider } from '../providers/job';
-import { queueProvider } from '../providers/queue';
+import { connectionAwareJobProvider } from '../providers/job';
+import { connectionAwareQueueProvider } from '../providers/queue';
 
 async function cleanJob(
-  _req: BullBoardRequest,
+  _req: BullBoardRequestWithConnections,
   job: QueueJob
 ): Promise<ControllerHandlerReturnType> {
   await job.remove();
@@ -18,4 +18,4 @@ async function cleanJob(
   };
 }
 
-export const cleanJobHandler = queueProvider(jobProvider(cleanJob));
+export const cleanJobHandler = connectionAwareQueueProvider(connectionAwareJobProvider(cleanJob));

@@ -72,23 +72,9 @@ export function getQueuesApi(queues: ReadonlyArray<BaseAdapter>, connectionManag
   }
 
   async function loadQueuesFromConnections(): Promise<void> {
-    if (!connectionManager) {
-      return;
-    }
-
-    try {
-      // Load all connection-based queues from master registry
-      const reconstructedQueues = await connectionManager.loadQueuesFromMasterRegistry();
-      
-      // Add all reconstructed queues to the bull board queues map
-      for (const [queueName, adapter] of reconstructedQueues) {
-        bullBoardQueues.set(queueName, adapter);
-      }
-      
-      console.log(`Loaded ${reconstructedQueues.size} queues from master registry`);
-    } catch (error) {
-      console.warn('Failed to load queues from master registry:', error instanceof Error ? error.message : String(error));
-    }
+    // Lazy loading implementation - queues are now created on-demand
+    // This function is kept for backward compatibility but does nothing
+    console.log('Queue lazy loading enabled - queues will be created on first access');
   }
 
   function getConnectionManager(): ConnectionManager | undefined {

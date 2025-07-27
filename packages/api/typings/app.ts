@@ -322,6 +322,9 @@ export interface DynamicBoardOptions extends BoardOptions {
 // Extended request type for connection-aware operations
 export interface BullBoardRequestWithConnections extends BullBoardRequest {
   connectionManager?: any; // ConnectionManager instance
+  params: BullBoardRequest['params'] & {
+    connectionId: string; // Connection ID for multi-connection support (required)
+  };
 }
 
 // Queue Detection Types
