@@ -368,9 +368,15 @@ export class ConnectionManager {
   /**
    * Add queue to master registry with composite key to handle name overlaps
    */
-  async addQueueToMasterRegistry(queueName: string, connectionId: string): Promise<void> {
+  async addQueueToMasterRegistry(queueName: string, connectionId: string, queueType: 'bull' | 'bullmq' = 'bullmq', options: any = {}): Promise<void> {
     const compositeKey = `${connectionId}:${queueName}`;
-    await this.masterRedis.hset(this.MASTER_REGISTRY_KEY, compositeKey, connectionId);
+    const queueData = {
+      connectionId,
+      queueType,
+      lastSeen: Date.now(),
+      options
+    };
+    await this.masterRedis.hset(this.MASTER_REGISTRY_KEY, compositeKey, JSON.stringify(queueData));
   }
 
   /**
@@ -406,26 +412,68 @@ export class ConnectionManager {
   async loadQueuesFromMasterRegistry(): Promise<Map<string, BaseAdapter>> {
     const reconstructedQueues = new Map<string, BaseAdapter>();
     
+    console.log('🔄 Starting queue reconstruction from master registry...');
+    
     try {
       const allQueues = await this.getAllQueuesFromMasterRegistry();
+      console.log(`📋 Found ${Object.keys(allQueues).length} queue entries in master registry:`, Object.keys(allQueues));
       
-      for (const [compositeKey, connectionId] of Object.entries(allQueues)) {
+      for (const [compositeKey, storedValue] of Object.entries(allQueues)) {
+        console.log(`🔍 Processing registry entry: ${compositeKey} -> data: ${storedValue}`);
+        
         try {
           // Parse composite key: "connectionId:queueName"
           const colonIndex = compositeKey.indexOf(':');
-          if (colonIndex === -1) continue;
+          if (colonIndex === -1) {
+            console.warn(`⚠️  Invalid composite key format: ${compositeKey} (missing colon separator)`);
+            continue;
+          }
           
           const queueName = compositeKey.substring(colonIndex + 1);
           
-          // Recreate queue adapter
-          const adapter = await this.createQueueAdapter(connectionId, queueName);
+          // Parse stored queue data (backward compatibility with old format)
+          let queueData: any;
+          try {
+            queueData = JSON.parse(storedValue);
+            console.log(`📤 Attempting to recreate queue: "${queueName}" with type: ${queueData.queueType} on connection: ${queueData.connectionId}`);
+          } catch (parseError) {
+            // Backward compatibility: treat as old format (just connectionId)
+            queueData = {
+              connectionId: storedValue,
+              queueType: 'bullmq', // Default assumption
+              options: {}
+            };
+            console.log(`📤 Legacy format detected. Attempting to recreate queue: "${queueName}" with default type: bullmq on connection: ${storedValue}`);
+          }
+          
+          // Check if connection exists before attempting recreation
+          const config = await this.getConnection(queueData.connectionId);
+          if (!config) {
+            console.warn(`⚠️  Connection ${queueData.connectionId} not found, skipping queue ${queueName}`);
+            continue;
+          }
+          
+          // Recreate queue adapter with stored type and options
+          const adapter = await this.createQueueAdapter(
+            queueData.connectionId, 
+            queueName, 
+            queueData.queueType || 'bullmq',
+            queueData.options || {}
+          );
           reconstructedQueues.set(adapter.getName(), adapter);
+          console.log(`✅ Successfully recreated queue: "${adapter.getName()}" from registry`);
         } catch (error) {
-          console.warn(`Failed to recreate queue from registry: ${compositeKey}`, error instanceof Error ? error.message : String(error));
+          console.error(`❌ Failed to recreate queue from registry: ${compositeKey}`, {
+            error: error instanceof Error ? error.message : String(error),
+            storedValue,
+            queueName: compositeKey.includes(':') ? compositeKey.substring(compositeKey.indexOf(':') + 1) : 'unknown'
+          });
         }
       }
+      
+      console.log(`🎉 Registry reconstruction complete. Successfully loaded ${reconstructedQueues.size} queues`);
     } catch (error) {
-      console.warn('Failed to load queues from master registry:', error instanceof Error ? error.message : String(error));
+      console.error('💥 Critical failure loading queues from master registry:', error instanceof Error ? error.message : String(error));
     }
     
     return reconstructedQueues;
@@ -479,8 +527,8 @@ export class ConnectionManager {
     const adapterName = adapter.getName();
     await this.addQueueToConnection(connectionId, adapterName);
     
-    // Also register in master registry
-    await this.addQueueToMasterRegistry(queueName, connectionId);
+    // Also register in master registry with type and options
+    await this.addQueueToMasterRegistry(queueName, connectionId, queueType, options);
 
     return adapter;
   }

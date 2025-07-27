@@ -59,7 +59,8 @@ export function createBullBoard({
     addQueue, 
     removeQueue,
     setServerAdapter,
-    addQueueFromConnection
+    addQueueFromConnection,
+    loadQueuesFromConnections
   } = getQueuesApi(queues, connectionManager);
 
   const uiBasePath =
@@ -123,6 +124,13 @@ export function createBullBoard({
   if (connectionManager) {
     result.connectionManager = connectionManager;
     result.addQueueFromConnection = addQueueFromConnection;
+    
+    // Trigger queue restoration after a short delay to ensure connections are ready
+    setTimeout(() => {
+      loadQueuesFromConnections().catch(error => {
+        console.warn('Failed to load queues from registry:', error instanceof Error ? error.message : String(error));
+      });
+    }, 1000);
   }
 
   return result;
